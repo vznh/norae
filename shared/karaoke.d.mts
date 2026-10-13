@@ -1,0 +1,11 @@
+import type { LyricLine, TimedUnit } from '../src/types';
+export const fonts: { name: string; description: string }[];
+export const FADE_SECONDS: number;
+export function unitsFor(text: string): TimedUnit[];
+export function displayLyricText(text: string): string;
+export function hasCompleteWordTiming(line: LyricLine): boolean;
+export function lineTiming(line: LyricLine): {start: number | null; end: number | null};
+export function lyricPairs(lines: LyricLine[]): number[][];
+export function unitProgress(unit: TimedUnit, position: number): number;
+export function frameState(lines: LyricLine[], position: number, duration: number): {index: number; pairIndex: number; slot: number; opacity: number; leadInStart: number}[];
+export function drawKaraoke(ctx: CanvasRenderingContext2D, lines: LyricLine[], position: number, duration: number, options?: {font?: string; copyright?: string; readingBarWidth?: number}): void;

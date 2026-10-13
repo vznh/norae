@@ -45,3 +45,31 @@ export function lyricSections(lines) {
   }
   return sections;
 }
+
+// Apply new line/verse breaks without changing words or discarding syllable timing.
+export function reflowLyrics(lines, text) {
+  const layout = parseLyricLayout(text);
+  if (!layout.length || layout.length > 500) throw new Error('Use between 1 and 500 lyric lines.');
+  const compact = text => text.replace(/\s+/g, '');
+  const original = lines.flatMap(line => line.words?.length ? line.words : [{ text: line.text, start: line.start, end: line.end }]);
+  if (compact(original.map(word => word.text).join('')) !== compact(layout.map(line => line.text).join(''))) throw new Error('Verse layout can change line breaks and section headings only. Use Replace lyrics to change the words.');
+  let cursor = 0;
+  return layout.map(row => {
+    const target = compact(row.text); let matched = '', words = [];
+    while (cursor < original.length && matched.length < target.length) {
+      const word = original[cursor++]; matched += compact(word.text); words.push({ ...word });
+    }
+    if (matched !== target) throw new Error('Place line breaks between timing units. Split the word into syllables first if needed.');
+    // Reproduce the requested spacing while retaining boundaries of timed syllables.
+    let character = 0;
+    words = words.map(word => {
+      const length = compact(word.text).length;
+      const start = character; let seen = 0;
+      while (character < row.text.length && seen < length) { if (!/\s/.test(row.text[character])) seen++; character++; }
+      while (character < row.text.length && /\s/.test(row.text[character])) character++;
+      return { ...word, text: row.text.slice(start, character) };
+    });
+    const timed = words.every(word => word.start !== null && word.end !== null);
+    return { ...row, words, start: timed ? words[0].start : null, end: timed ? words.at(-1).end : null, heard: '', agreement: null, review: true, timing: 'manual' };
+  });
+}
