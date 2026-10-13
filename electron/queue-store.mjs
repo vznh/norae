@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const AUDIO_FILE = /^(?:audio|demo)\.(?:mp3|wav|m4a|ogg|opus)$/;
-const FIELDS = ['id', 'url', 'title', 'artist', 'singer', 'duration', 'status', 'steps', 'candidates', 'lyrics', 'transcript', 'result', 'error', 'overrides', 'demo', 'font', 'reviewed', 'export'];
+const FIELDS = ['id', 'url', 'title', 'artist', 'singer', 'duration', 'status', 'steps', 'candidates', 'lyrics', 'transcript', 'result', 'error', 'overrides', 'demo', 'font', 'reviewed', 'export', 'originalMetadata', 'metadataEnrichment'];
 
 export class QueueStore {
   constructor({ file, audioRoot }) { this.file = file; this.audioRoot = audioRoot; this.pending = Promise.resolve(); }
