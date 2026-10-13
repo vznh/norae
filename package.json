@@ -34,7 +34,8 @@
   "dependencies": {
     "lucide-react": "^1.46.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "@napi-rs/canvas": "^1.0.10"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
