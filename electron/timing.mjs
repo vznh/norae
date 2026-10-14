@@ -4,6 +4,12 @@ import { unitsFor } from '../shared/karaoke.mjs';
 import { validateLines } from '../shared/timing-validation.mjs';
 export { validateLines, validateFont } from '../shared/timing-validation.mjs';
 import { parseLyricLayout } from '../shared/lyrics.mjs';
+import { guardReferenceTiming } from '../shared/alignment-windows.mjs';
+
+export function repairReferenceTiming(result, lyrics, duration, transcript = []) {
+  if (!result || result.source !== 'database' || !lyrics?.syncedLyrics) return result;
+  return guardReferenceTiming(result, reconcile(lyrics, [], duration).lines, { transcript, duration });
+}
 
 export function prepareLines(result, lyrics) {
   const layout = parseLyricLayout(lyrics?.plainLyrics || '');
@@ -40,5 +46,5 @@ export function applyAlignment(result, alignment, duration, lyrics, transcript =
   });
   validateLines(lines, duration, { requireTiming: false });
   const unmatched = mapped.filter(word => word.start === null).length;
-  return { ...result, timing: unmatched ? 'partial' : 'aligned', lines, notes: [unmatched ? `Aligned ${mapped.length - unmatched} of ${mapped.length} units; retained existing timing for ${retained}. ${unmatched - retained} still need manual timing. Missing boundaries have not been guessed.` : 'ElevenLabs aligned the supplied lyrics. Word agreement is independent evidence, not a timing accuracy score. Review held vowels and slurred phrases.'] };
+  return repairReferenceTiming({ ...result, timing: unmatched ? 'partial' : 'aligned', lines, notes: [unmatched ? `Aligned ${mapped.length - unmatched} of ${mapped.length} units; retained existing timing for ${retained}. ${unmatched - retained} still need manual timing. Missing boundaries have not been guessed.` : 'ElevenLabs aligned the supplied lyrics. Word agreement is independent evidence, not a timing accuracy score. Review held vowels and slurred phrases.'] }, lyrics, duration, transcript);
 }
