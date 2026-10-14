@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import electron from 'electron';
 import { DesktopLifecycle } from './desktop-lifecycle.mjs';
+import { buildNative } from './build-native.mjs';
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
+await buildNative();
 // Own the server instance: never attach Electron to another app's occupied port.
 const server = await createServer({ root: projectRoot, server: { host: '127.0.0.1', port: 0, strictPort: false } });
 await server.listen();
@@ -38,10 +40,11 @@ function sourceChanged(file) {
   changedFile = file; clearTimeout(restartTimer);
   restartTimer = setTimeout(async () => {
     console.log(`Source changed (${changedFile}) · fully relaunching Norae`);
+    try { await buildNative(); } catch (error) { console.error(`Native helper build failed: ${error.message}`); return; }
     void desktop.restart().catch(error => console.error(`Desktop relaunch failed: ${error.message}`));
   }, 350);
 }
-for (const folder of ['src', 'electron', 'shared']) {
+for (const folder of ['src', 'electron', 'shared', 'native']) {
   watchers.push(watch(path.join(projectRoot, folder), { recursive: true }, (_event, filename) => {
     if (filename && /\.(?:[cm]?[jt]sx?|css|svg|json|swift)$/.test(filename.toString())) sourceChanged(`${folder}/${filename}`);
   }));
