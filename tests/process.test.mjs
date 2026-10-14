@@ -16,3 +16,7 @@ test('subprocess cancellation rejects immediately if already cancelled', async (
   const controller = new AbortController(); controller.abort();
   await assert.rejects(run(process.execPath, ['-e', 'process.exit(0)'], { signal: controller.signal }), /Cancelled/);
 });
+test('subprocess stdin sends JSON literally and closes without hanging', async () => {
+  const input = JSON.stringify({ title: '$(echo nope) — Song' });
+  assert.equal(await run(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], { input }), input);
+});
