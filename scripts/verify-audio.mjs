@@ -6,7 +6,7 @@ import path from 'node:path';
 import { transcribe, fetchLyrics, inspect, extract, defaultSettings } from '../electron/providers.mjs';
 import { run } from '../electron/process.mjs';
 const root = await mkdtemp(path.resolve('.runtime/live-'));
-const settings = { ...defaultSettings, model: path.resolve('.models/ggml-base.bin'), language: 'en' };
+const settings = { ...defaultSettings, model: path.resolve('.models/ggml-base.bin'), language: 'en', transcriptionProvider: 'whisper', lyricsProvider: 'lrclib' };
 const signal = AbortSignal.timeout(180000);
 const results = [];
 try {
@@ -26,7 +26,7 @@ try {
     })(),
     (async () => {
       try {
-        const result = await fetchLyrics({ title: 'Yellow', artist: 'Coldplay', duration: 269 }, signal);
+        const result = await fetchLyrics({ title: 'Yellow', artist: 'Coldplay', duration: 269 }, signal, settings);
         assert.ok(result.candidates.length > 0);
         results.push({ check: 'Live LRCLIB lookup', passed: true, candidates: result.candidates.length });
       } catch (error) { results.push({ check: 'Live LRCLIB lookup', passed: false, error: error.message }); }
