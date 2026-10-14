@@ -10,6 +10,10 @@ test('metadata prefers overrides and cleans common video title suffixes', () => 
   assert.deepEqual(metadata({ title: 'Artist - My song (Official Music Video)', uploader: 'Channel', duration: 123 }), { title: 'My song', artist: 'Artist', duration: 123 });
   assert.equal(metadata({ title: 'Wrong' }, { title: 'Correct' }).title, 'Correct');
 });
+test('SoundCloud metadata uses credited artists and falls back to the uploader', () => {
+  assert.deepEqual(metadata({ track: 'Home', artists: ['Actual singer', 'Featured singer'], uploader: 'Label account', duration: 123.5 }), { title: 'Home', artist: 'Actual singer, Featured singer', duration: 123.5 });
+  assert.equal(metadata({ title: 'Home', artists: [], uploader: 'Artist account', duration: 123 }).artist, 'Artist account');
+});
 test('LRC supports multiple stamps, offsets and instrumental gaps', () => {
   const rows = parseLrc('[offset:-500]\n[00:02.50][01:02.5]Hello\n[00:08.000]\n[00:12]Next', 70);
   assert.deepEqual(rows.map(row => row.start), [2, 11.5, 62]);

@@ -1,18 +1,7 @@
-export function youtubeUrl(value) {
-  if (typeof value !== 'string' || value.length > 2048) throw new Error('Paste a valid YouTube video URL.');
-  let url;
-  try { url = new URL(value.trim()); } catch { throw new Error('Paste a full YouTube URL, including https://.'); }
-  const host = url.hostname.toLowerCase();
-  if (url.protocol !== 'https:' || url.username || url.password || url.port) throw new Error('Use an https:// YouTube video URL.');
-  let id;
-  if (host === 'youtu.be') id = url.pathname.slice(1);
-  else if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(host)) {
-    if (url.pathname === '/watch') id = url.searchParams.get('v');
-    else id = url.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]+)\/?$/)?.[1];
-  }
-  if (!id || !/^[\w-]{11}$/.test(id)) throw new Error('Use a single YouTube video link, not a playlist or channel.');
-  return `https://www.youtube.com/watch?v=${id}`;
-}
+import { parseLyricLayout, groupTranscriptLines } from '../shared/lyrics.mjs';
+import { unitsFor } from '../shared/karaoke.mjs';
+
+export { youtubeUrl, sourceUrl, sourceName } from '../shared/source-url.mjs';
 
 export const normalize = (text = '') => text.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 export const tokens = (text = '') => normalize(text).match(/[\p{L}\p{N}]+/gu) || [];
@@ -23,8 +12,8 @@ export function similarity(a, b) {
 }
 
 export function metadata(info, overrides = {}) {
-  let title = info.track || info.title || 'Untitled video';
-  let artist = info.artist || info.creator || info.uploader || '';
+  let title = info.track || info.title || 'Untitled track';
+  let artist = info.artist || (Array.isArray(info.artists) ? info.artists.filter(artist => typeof artist === 'string' && artist.trim()).join(', ') : '') || info.creator || info.uploader || '';
   title = title.replace(/\s*[\[(](?:official[^\])]*|lyrics?[^\])]*|audio[^\])]*|music video[^\])]*|4k|hd)[\])]/gi, '').trim();
   if (!info.track && title.includes(' - ')) [artist, title] = [title.split(' - ')[0], title.split(' - ').slice(1).join(' - ')];
   artist = artist.replace(/\s*- Topic$|VEVO$/gi, '').trim();
@@ -33,15 +22,18 @@ export function metadata(info, overrides = {}) {
 
 export function parseLrc(lrc = '', duration = 0) {
   const offset = Number(lrc.match(/\[offset:([+-]?\d+)\]/i)?.[1] || 0) / 1000;
-  const result = [];
+  const result = []; let boundary = true, section = '';
   for (const line of lrc.split(/\r?\n/)) {
     const stamps = [...line.matchAll(/\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
+    if (!line.trim()) { boundary = true; continue; }
+    if (!stamps.length && /^\[(?!\w+:)[^\]]+\]$/.test(line.trim())) { boundary = true; section = line.trim().slice(1, -1).slice(0, 200); continue; }
     const text = line.replace(/\[[^\]]*\]/g, '').trim();
     // Empty timestamped lines are retained as instrumental gaps.
     for (const stamp of stamps) {
       const start = Math.max(0, Number(stamp[1]) * 60 + Number(stamp[2]) + Number(`0.${stamp[3] || 0}`) + offset);
-      result.push({ text, start });
+      result.push({ text, start, blockStart: boundary, section: boundary ? section : '' });
     }
+    if (stamps.length) { boundary = !text; section = ''; }
   }
   result.sort((a, b) => a.start - b.start);
   return result.map((line, i) => ({ ...line, end: result[i + 1]?.start ?? Math.max(duration, line.start + 5) })).filter(line => line.text);
@@ -84,14 +76,41 @@ function wordAlignment(lines, segments) {
   return matches;
 }
 
+function transcriptWords(line, segments, start, end) {
+  const units = unitsFor(line.text);
+  // A phrase timestamp cannot supply distinct word boundaries. Use only a
+  // complete, monotonic word-for-word match inside the reference line window.
+  if (units.length !== segments.length || !units.length) return null;
+  let previousEnd = start;
+  const words = [];
+  for (let i = 0; i < units.length; i++) {
+    const segment = segments[i];
+    if (normalize(units[i].text) !== normalize(segment.text) || !Number.isFinite(segment.start) || !Number.isFinite(segment.end) || segment.start < previousEnd - .01 || segment.end <= segment.start || segment.end > end + .01) return null;
+    words.push({ ...units[i], start: segment.start, end: segment.end });
+    previousEnd = segment.end;
+  }
+  return words;
+}
+
 export function reconcile(lyrics, segments = [], duration = 0) {
   if (!lyrics) return {
     source: 'transcript', timing: 'transcript', agreement: null,
-    lines: segments.map(line => ({ ...line, heard: line.text, agreement: null, review: true, timing: 'transcript' })),
-    notes: ['No confirmed database lyrics. Showing the unverified local transcript.'],
+    lines: groupTranscriptLines(segments),
+    notes: ['No confirmed database lyrics. Showing the unverified transcript with estimated line and verse breaks. Original audio timestamps are preserved.'],
   };
   const synced = parseLrc(lyrics.syncedLyrics, duration);
-  const lines = synced.length ? synced : lyrics.plainLyrics.split(/\r?\n/).map(text => ({ text: text.trim() })).filter(line => line.text && !/^\[.*\]$/.test(line.text));
+  const plain = parseLyricLayout(lyrics.plainLyrics || '');
+  // A word-synced LRC must not replace the reference lyric's full lines.
+  const sameWords = plain.length && normalize(plain.map(line => line.text).join(' ')) === normalize(synced.map(line => line.text).join(' '));
+  const syncTokens = synced.flatMap((line, index) => tokens(line.text).map(word => ({ word, index })));
+  let cursor = 0;
+  const lines = synced.length && sameWords ? plain.map(line => {
+    const count = tokens(line.text).length, ids = syncTokens.slice(cursor, cursor + count).map(token => token.index);
+    const startsAtBoundary = !cursor || syncTokens[cursor - 1]?.index !== ids[0];
+    cursor += count;
+    const endsAtBoundary = cursor === syncTokens.length || syncTokens[cursor]?.index !== ids.at(-1);
+    return { ...line, start: startsAtBoundary && endsAtBoundary ? synced[ids[0]]?.start ?? null : null, end: startsAtBoundary && endsAtBoundary ? synced[ids.at(-1)]?.end ?? null : null };
+  }) : synced.length ? synced : plain;
   const matches = wordAlignment(lines, segments);
   let matchedWords = 0, totalWords = 0;
   const output = lines.map((line, i) => {
@@ -100,8 +119,13 @@ export function reconcile(lyrics, segments = [], duration = 0) {
     matchedWords += matches[i].length; totalWords += count;
     const agreement = segments.length && count ? matches[i].length / count : null;
     const timedSegments = ids.map(id => segments[id]);
-    const timing = synced.length ? 'database' : timedSegments.length && (agreement ?? 0) >= .5 ? 'approximate' : 'untimed';
-    return { ...line, start: synced.length ? line.start : timing === 'approximate' ? timedSegments[0].start : null, end: synced.length ? line.end : timing === 'approximate' ? timedSegments.at(-1).end : null, heard: timedSegments.map(s => s.text).join(' '), agreement, timing, review: agreement === null || agreement < .85 || timing !== 'database' || (timedSegments.length > 0 && synced.length > 0 && Math.abs(timedSegments[0].start - line.start) > 5) };
+    const timing = synced.length ? line.start !== null && line.end !== null ? 'database' : 'untimed' : timedSegments.length && (agreement ?? 0) >= .5 ? 'approximate' : 'untimed';
+    const start = synced.length ? line.start : timing === 'approximate' ? timedSegments[0].start : null;
+    const end = synced.length ? line.end : timing === 'approximate' ? timedSegments.at(-1).end : null;
+    const words = start !== null && end !== null ? transcriptWords(line, timedSegments, start, end) : null;
+    return { ...line, start, end, ...(words ? { words } : {}), heard: timedSegments.map(s => s.text).join(' '), agreement, timing: words ? 'transcript' : timing, review: !!words || agreement === null || agreement < .85 || timing !== 'database' || (timedSegments.length > 0 && synced.length > 0 && Math.abs(timedSegments[0].start - line.start) > 5) };
   });
-  return { source: 'database', timing: synced.length ? 'database' : 'approximate', agreement: segments.length && totalWords ? matchedWords / totalWords : null, lines: output, notes: synced.length ? ['Database wording and timestamps are preserved. Agreement measures matching words, not accuracy.'] : ['Database wording is preserved. Segment-based timings are approximate; unmatched lines stay untimed.'] };
+  const notes = synced.length ? ['Database wording and line timestamps are preserved. Agreement measures matching words, not accuracy.'] : ['Database wording is preserved. Segment-based timings are approximate; unmatched lines stay untimed.'];
+  if (output.some(line => line.words)) notes.push('Exactly matching transcript words retain their original timestamps. These are unreviewed transcription timings, not forced alignment.');
+  return { source: 'database', timing: synced.length ? 'database' : 'approximate', agreement: segments.length && totalWords ? matchedWords / totalWords : null, lines: output, notes };
 }
