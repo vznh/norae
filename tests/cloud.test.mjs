@@ -21,3 +21,20 @@ test('Scribe v2 uses English and no lyric prompt; forced alignment is a separate
   assert.equal(words.length, 1); assert.equal(requests[0].form.get('model_id'), 'scribe_v2'); assert.equal(requests[0].form.get('language_code'), 'eng');
   assert.equal(requests[0].form.has('text'), false); assert.equal(requests[0].form.has('transcript_edit'), false); assert.equal(requests[1].form.get('text'), 'Hello');
 });
+test('lyrics lookup is keyless LRCLIB even with an obsolete saved provider', async t => {
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const request = new URL(url); assert.equal(request.hostname, 'lrclib.net'); assert.equal(request.searchParams.has('apikey'), false); assert.equal('xi-api-key' in options.headers, false);
+    return response([{ id: 1, trackName: 'Home', artistName: 'Singer', duration: 10, plainLyrics: 'Original fixture lyric', syncedLyrics: '' }]);
+  });
+  const result = await fetchLyrics({ title: 'Home', artist: 'Singer', duration: 10 }, new AbortController().signal, { lyricsProvider: 'obsolete' });
+  assert.equal(defaultSettings.lyricsProvider, 'lrclib'); assert.equal(result.selected.id, 1);
+});
+test('LRCLIB provider errors preserve independent transcription', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 503 }));
+  await assert.rejects(fetchLyrics({ title: 'Home', artist: 'Singer', duration: 10 }, new AbortController().signal, undefined, { wait: async () => {} }), /Transcription continues independently/);
+});
+test('provider errors redact key-bearing request URLs', async t => {
+  const { settings, audio } = await setup(t);
+  t.mock.method(globalThis, 'fetch', async url => { throw new Error(`failure ${url}`); });
+  await assert.rejects(transcribeElevenLabs(audio, settings), error => { assert.equal(error.message.includes('https:'), false); assert.match(error.message, /could not be reached/); return true; });
+});
